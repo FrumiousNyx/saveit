@@ -1,4 +1,4 @@
-# SaveIt - Social Media Downloader
+# AnyDownloader - Social Media Downloader
 
 A clean, fast, and distraction-free social media downloader that lets you download media from Instagram, Reddit, and TikTok without ads or sign-ups.
 

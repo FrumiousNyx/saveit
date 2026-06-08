@@ -9,7 +9,7 @@ const geistMono = Geist_Mono({
   subsets: ['latin'],
 })
 
-const APP_NAME = 'Saveit'
+const APP_NAME = 'AnyDownloader'
 const APP_DESCRIPTION =
   'Paste a link to download videos and images from Instagram, Reddit, and TikTok. Minimal, fast, and easy to use.'
 

@@ -31,7 +31,7 @@ export function HomeClient() {
               />
             </svg>
           </span>
-          <span className="font-mono text-sm font-medium tracking-tight">saveit</span>
+          <span className="font-mono text-sm font-medium tracking-tight">AnyDownloader</span>
         </div>
         <button
           type="button"

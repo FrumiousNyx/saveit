@@ -48,7 +48,7 @@ export default function TwitterImage() {
           >
             S
           </div>
-          <div style={{ display: 'flex' }}>Saveit</div>
+          <div style={{ display: 'flex' }}>AnyDownloader</div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
@@ -84,7 +84,7 @@ export default function TwitterImage() {
             color: 'rgba(255,255,255,0.82)',
           }}
         >
-          saveit app
+          anydownloader app
         </div>
       </div>
     ),

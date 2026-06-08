@@ -2,8 +2,8 @@ import type { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'Saveit',
-    short_name: 'Saveit',
+    name: 'AnyDownloader',
+    short_name: 'AnyDownloader',
     description:
       'Download videos and images from Instagram, Reddit, and TikTok with a fast and simple interface.',
     start_url: '/',

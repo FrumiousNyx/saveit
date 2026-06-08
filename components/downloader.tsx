@@ -191,12 +191,12 @@ function ResultCard({ result }: { result: ResolveResult }) {
       <ul className="divide-y divide-border">
         {result.media.map((item, i) => (
           <li key={i} className="flex items-center gap-3 px-4 py-3">
-            <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted">
-              {item.thumbnail ? (
+            <div className="relative flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted">
+              {getPreviewSrc(item) ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={item.thumbnail || "/placeholder.svg"}
-                  alt=""
+                  src={getPreviewSrc(item)}
+                  alt={`${item.type} preview ${i + 1}`}
                   className="size-full object-cover"
                 />
               ) : (
@@ -204,9 +204,14 @@ function ResultCard({ result }: { result: ResolveResult }) {
                   {item.type}
                 </span>
               )}
+              {result.media.length > 1 && (
+                <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-white">
+                  {i + 1}
+                </span>
+              )}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium capitalize">{item.type}</p>
+              <p className="text-sm font-medium capitalize">{getItemLabel(result, item, i)}</p>
               <p className="truncate text-xs text-muted-foreground">{item.url}</p>
             </div>
             <a
@@ -228,7 +233,23 @@ function ResultCard({ result }: { result: ResolveResult }) {
 
 function buildDownloadName(result: ResolveResult, item: MediaItem, index: number) {
   const title = result.title.trim()
-  const suffix = result.media.length > 1 ? `-${index + 1}` : ""
-  const fallback = `${result.platform}-${item.type}${suffix}`
-  return title ? `${title}${suffix}` : fallback
+  const itemNumber = String(index + 1).padStart(2, "0")
+  const multiItemPrefix =
+    result.media.length > 1
+      ? `${result.platform}-${item.type}-${itemNumber}-of-${result.media.length}`
+      : ""
+  const fallback = multiItemPrefix || `${result.platform}-${item.type}`
+
+  if (!title) return fallback
+  return multiItemPrefix ? `${multiItemPrefix}-${title}` : title
+}
+
+function getPreviewSrc(item: MediaItem) {
+  const source = item.thumbnail || (item.type === "image" ? item.url : undefined)
+  return source ? `/api/media?url=${encodeURIComponent(source)}` : undefined
+}
+
+function getItemLabel(result: ResolveResult, item: MediaItem, index: number) {
+  if (result.media.length === 1) return item.type
+  return `${item.type} ${index + 1} of ${result.media.length}`
 }

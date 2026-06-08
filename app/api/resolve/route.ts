@@ -87,22 +87,7 @@ async function resolveReddit(url: string): Promise<ResolveResult | null> {
   const post = (data[0] as any)?.data?.children?.[0]?.data
   if (!post) return resolveRedditFromOldReddit(withProtocol)
 
-  const media: MediaItem[] = []
-
-  if (post.is_video && post.media?.reddit_video?.fallback_url) {
-    media.push({
-      type: "video",
-      url: String(post.media.reddit_video.fallback_url),
-      thumbnail: decodeHtml(post.thumbnail),
-    })
-  } else if (post.preview?.images?.length) {
-    for (const img of post.preview.images) {
-      const src = img?.source?.url
-      if (src) media.push({ type: "image", url: decodeHtml(src) || "" })
-    }
-  } else if (post.url && /\.(jpg|jpeg|png|gif|webp)$/i.test(post.url)) {
-    media.push({ type: "image", url: String(post.url) })
-  }
+  const media = extractRedditMedia(post)
 
   if (!media.length) return resolveRedditFromOldReddit(withProtocol)
 
@@ -112,6 +97,62 @@ async function resolveReddit(url: string): Promise<ResolveResult | null> {
     author: post.author ? `u/${post.author}` : undefined,
     media,
   }
+}
+
+function extractRedditMedia(post: any): MediaItem[] {
+  const media: MediaItem[] = []
+  const seen = new Set<string>()
+
+  const pushMedia = (item: MediaItem | null) => {
+    if (!item?.url || seen.has(item.url)) return
+    seen.add(item.url)
+    media.push(item)
+  }
+
+  if (post.is_video && post.media?.reddit_video?.fallback_url) {
+    pushMedia({
+      type: "video",
+      url: String(post.media.reddit_video.fallback_url),
+      thumbnail: decodeHtml(post.thumbnail),
+    })
+  } else if (post.gallery_data?.items?.length && post.media_metadata) {
+    for (const item of post.gallery_data.items as Array<{ media_id?: string }>) {
+      const mediaId = item?.media_id
+      const metadata = mediaId ? post.media_metadata[mediaId] : null
+      const imageUrl =
+        decodeHtml(metadata?.s?.u) ||
+        decodeHtml(metadata?.s?.gif) ||
+        decodeHtml(metadata?.p?.at(-1)?.u)
+
+      if (!imageUrl) continue
+
+      pushMedia({
+        type: "image",
+        url: imageUrl,
+        thumbnail: imageUrl,
+      })
+    }
+  }
+
+  if (!media.length && post.preview?.images?.length) {
+    for (const img of post.preview.images) {
+      const src = img?.source?.url
+      if (!src) continue
+      const imageUrl = decodeHtml(src)
+      if (!imageUrl) continue
+      pushMedia({ type: "image", url: imageUrl, thumbnail: imageUrl })
+    }
+  }
+
+  if (!media.length && post.url && /\.(jpg|jpeg|png|gif|webp)$/i.test(post.url)) {
+    pushMedia({
+      type: "image",
+      url: String(post.url),
+      thumbnail: String(post.url),
+    })
+  }
+
+  return media
 }
 
 async function resolveRedditFromOldReddit(url: string): Promise<ResolveResult | null> {
@@ -232,6 +273,56 @@ function extractInstagramVideo(html: string): string | undefined {
   ])
 }
 
+function normalizeEscapedPayload(input: string): string {
+  return input
+    .replace(/\\u002F/g, "/")
+    .replace(/\\u0026/g, "&")
+    .replace(/\\\\\//g, "/")
+    .replace(/\\\//g, "/")
+    .replace(/\\"/g, '"')
+}
+
+function extractInstagramMedia(html: string): MediaItem[] {
+  const normalized = normalizeEscapedPayload(html)
+  const media: MediaItem[] = []
+  const seen = new Set<string>()
+
+  for (const match of normalized.matchAll(/"node":\{"__typename":"GraphImage"[\s\S]*?"display_url":"([^"]+)"/g)) {
+    const imageUrl = decodeHtml(match[1])
+    if (!imageUrl || seen.has(imageUrl)) continue
+
+    seen.add(imageUrl)
+    media.push({ type: "image", url: imageUrl, thumbnail: imageUrl })
+  }
+
+  for (const match of normalized.matchAll(
+    /"node":\{"__typename":"GraphVideo"[\s\S]*?"display_url":"([^"]+)"[\s\S]*?"video_url":"([^"]+)"/g,
+  )) {
+    const thumbnail = decodeHtml(match[1])
+    const videoUrl = decodeHtml(match[2])
+    if (!videoUrl || seen.has(videoUrl)) continue
+
+    seen.add(videoUrl)
+    media.push({
+      type: "video",
+      url: videoUrl,
+      thumbnail,
+    })
+  }
+
+  return media
+}
+
+function getInstagramEmbedUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    const pathname = parsed.pathname.replace(/\/$/, "")
+    return `${parsed.origin}${pathname}/embed/`
+  } catch {
+    return null
+  }
+}
+
 function extractTikTokVideo(html: string): string | undefined {
   return matchDecoded(html, [
     /<meta property="og:video" content="([^"]+)"/i,
@@ -335,17 +426,21 @@ async function resolveInstagram(url: string): Promise<ResolveResult | null> {
     if (!pageRes.ok) return null
 
     const html = await pageRes.text()
+    let media = extractInstagramMedia(html)
     let videoUrl = extractInstagramVideo(html)
-    let imageUrl = extractMeta(html, "og:image") ?? oembed?.thumbnail_url
+    let imageUrl = media[0]?.thumbnail ?? extractMeta(html, "og:image") ?? oembed?.thumbnail_url
 
-    if (!videoUrl) {
-      const embedUrl = `${withProtocol.replace(/\/$/, "")}/embed/`
-      const embedRes = await fetch(embedUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
-        cache: "no-store",
-      })
+    if (media.length <= 1 || !media.some((item) => item.type === "video")) {
+      const embedUrl = getInstagramEmbedUrl(withProtocol)
+      const embedRes = embedUrl
+        ? await fetch(embedUrl, {
+            headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+            cache: "no-store",
+          })
+        : null
       if (embedRes.ok) {
         const embedHtml = await embedRes.text()
+        const embedMedia = extractInstagramMedia(embedHtml)
         const embedVideoUrl = extractInstagramVideo(embedHtml)
         const embedImageUrl =
           extractMeta(embedHtml, "og:image") ??
@@ -355,18 +450,25 @@ async function resolveInstagram(url: string): Promise<ResolveResult | null> {
             /"display_url":"([^"]+)"/i,
             /\\"display_url\\":\\"([^"]+)\\"/i,
           ])
+        if (embedMedia.length > media.length) {
+          media = embedMedia
+        }
         videoUrl = embedVideoUrl ?? videoUrl
         imageUrl = embedImageUrl ?? imageUrl
       }
     }
 
-    if (!videoUrl && !imageUrl) return null
+    if (!media.length && (videoUrl || imageUrl)) {
+      media = [{ type: videoUrl ? "video" : "image", url: videoUrl ?? imageUrl, thumbnail: imageUrl }]
+    }
+
+    if (!media.length) return null
 
     return {
       platform: "instagram",
       title: extractMeta(html, "og:title") ?? oembed?.title ?? "Instagram post",
       author: oembed?.author_name,
-      media: [{ type: videoUrl ? "video" : "image", url: videoUrl ?? imageUrl, thumbnail: imageUrl }],
+      media,
     }
   } catch {
     return null

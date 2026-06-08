@@ -48,7 +48,7 @@ export default function OpenGraphImage() {
           >
             S
           </div>
-          <div style={{ display: 'flex' }}>Saveit</div>
+          <div style={{ display: 'flex' }}>AnyDownloader</div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
