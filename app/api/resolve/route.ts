@@ -17,7 +17,6 @@ export type ResolveResult = {
 }
 
 const REDDIT_USER_AGENT = "social-media-downloader/0.1 (by /u/anonymous_local_debug)"
-const TIKTOK_DEBUG_SESSION = "tiktok-image-fallback"
 
 /**
  * NOTE: This route validates and detects the source, then returns a structured response.
@@ -250,24 +249,6 @@ async function extractRedditDashVideo(mpdUrl: string): Promise<string | null> {
   }
 }
 
-// #region debug-point A:tiktok-debug-report-helper
-function reportDebugTikTok(hypothesisId: string, location: string, msg: string, data: Record<string, unknown>) {
-  return fetch("http://127.0.0.1:7777/event", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      sessionId: TIKTOK_DEBUG_SESSION,
-      runId: "pre-fix",
-      hypothesisId,
-      location,
-      msg: `[DEBUG] ${msg}`,
-      data,
-      ts: Date.now(),
-    }),
-  }).catch(() => {})
-}
-// #endregion
-
 function decodeHtml(input?: string): string | undefined {
   if (!input) return undefined
   return input.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
@@ -393,16 +374,92 @@ function extractTikTokImage(html: string): string | undefined {
   ])
 }
 
-function extractTikTokVideoId(url: string): string | undefined {
+function extractTikTokMedia(html: string): MediaItem[] {
+  const normalized = normalizeEscapedPayload(html)
+  const media: MediaItem[] = []
+  const seen = new Set<string>()
+
+  const pushImage = (url?: string, thumbnail?: string) => {
+    const imageUrl = decodeHtml(url)
+    if (!imageUrl || seen.has(imageUrl)) return
+    seen.add(imageUrl)
+    media.push({
+      type: "image",
+      url: imageUrl,
+      thumbnail: decodeHtml(thumbnail) ?? imageUrl,
+    })
+  }
+
+  const imagePatterns = [
+    /"imagePost":\{"images":\[(.*?)\]/gi,
+    /"imagePostInfo":\{"images":\[(.*?)\]/gi,
+    /"images":\[(\{"imageURL":[\s\S]*?\})\]/gi,
+    /"imageList":\[(.*?)\]/gi,
+  ]
+
+  for (const pattern of imagePatterns) {
+    for (const blockMatch of normalized.matchAll(pattern)) {
+      const block = blockMatch[1]
+      if (!block) continue
+
+      for (const imageMatch of block.matchAll(
+        /"(?:imageURL|imageUrl|displayImage|image)":\{"(?:urlList|url_list|urls)":\["([^"]+)"/gi,
+      )) {
+        pushImage(imageMatch[1])
+      }
+
+      for (const imageMatch of block.matchAll(
+        /"(?:imageURL|imageUrl|displayImage|image)":\{"url":"([^"]+)"/gi,
+      )) {
+        pushImage(imageMatch[1])
+      }
+    }
+  }
+
+  if (!media.length) {
+    for (const match of normalized.matchAll(
+      /"(?:imageURL|imageUrl|displayImage|image)":\{"(?:urlList|url_list|urls)":\["([^"]+)"/gi,
+    )) {
+      pushImage(match[1])
+    }
+  }
+
+  if (!media.length) {
+    for (const match of normalized.matchAll(/"(?:photo|image)(?:Url|URL)?":"(https:[^"]+)"/gi)) {
+      pushImage(match[1])
+    }
+  }
+
+  if (!media.length) {
+    for (const match of normalized.matchAll(
+      /https?:\/\/p\d+\.muscdn\.com\/img\/musically-[^"' <]+~noop\.(?:webp|png|jpe?g)/gi,
+    )) {
+      pushImage(match[0])
+    }
+  }
+
+  return media
+}
+
+function extractTikTokPostId(url: string): string | undefined {
   try {
     const pathname = new URL(url).pathname
-    return pathname.match(/\/video\/(\d+)/i)?.[1]
+    return pathname.match(/\/(?:video|photo)\/(\d+)/i)?.[1]
+  } catch {
+    return undefined
+  }
+}
+
+function extractTikTokHandle(url: string): string | undefined {
+  try {
+    return new URL(url).pathname.match(/^\/@([^/]+)/)?.[1]
   } catch {
     return undefined
   }
 }
 
 async function resolveTikTokFromEmbed(videoId: string): Promise<{
+  media: MediaItem[]
   videoUrl?: string
   imageUrl?: string
   title?: string
@@ -416,30 +473,17 @@ async function resolveTikTokFromEmbed(videoId: string): Promise<{
       cache: "no-store",
       redirect: "follow",
     })
-    void reportDebugTikTok("D", "app/api/resolve/route.ts:255", "TikTok embed fetch response", {
-      ok: embedRes.ok,
-      status: embedRes.status,
-      finalUrl: embedRes.url,
-      contentType: embedRes.headers.get("content-type"),
-      videoId,
-    })
     if (!embedRes.ok) return null
 
     const embedHtml = await embedRes.text()
+    const media = extractTikTokMedia(embedHtml)
     const videoUrl = extractTikTokVideo(embedHtml)
-    const imageUrl = extractTikTokImage(embedHtml)
+    const imageUrl = media[0]?.thumbnail ?? extractTikTokImage(embedHtml)
     const title = extractMeta(embedHtml, "og:title") ?? extractMeta(embedHtml, "og:description")
 
-    void reportDebugTikTok("D", "app/api/resolve/route.ts:271", "TikTok embed extraction result", {
-      videoUrl: videoUrl ?? null,
-      imageUrl: imageUrl ?? null,
-      title: title ?? null,
-      selectedType: videoUrl ? "video" : imageUrl ? "image" : "none",
-    })
+    if (!media.length && !videoUrl && !imageUrl && !title) return null
 
-    if (!videoUrl && !imageUrl && !title) return null
-
-    return { videoUrl, imageUrl, title }
+    return { media, videoUrl, imageUrl, title }
   } catch {
     return null
   }
@@ -518,15 +562,6 @@ async function resolveTikTok(url: string): Promise<ResolveResult | null> {
   try {
     const res = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(withProtocol)}`, { cache: "no-store" })
     if (res.ok) oembed = await res.json()
-    // #region debug-point C:tiktok-oembed
-    void reportDebugTikTok("C", "app/api/resolve/route.ts:303", "TikTok oEmbed response", {
-      ok: res.ok,
-      status: res.status,
-      hasThumbnail: Boolean(oembed?.thumbnail_url),
-      title: oembed?.title ?? null,
-      author: oembed?.author_name ?? null,
-    })
-    // #endregion
   } catch {}
 
   try {
@@ -537,25 +572,21 @@ async function resolveTikTok(url: string): Promise<ResolveResult | null> {
       cache: "no-store",
       redirect: "follow",
     })
-    // #region debug-point C:tiktok-page-response
-    void reportDebugTikTok("C", "app/api/resolve/route.ts:318", "TikTok page fetch response", {
-      ok: pageRes.ok,
-      status: pageRes.status,
-      finalUrl: pageRes.url,
-      contentType: pageRes.headers.get("content-type"),
-    })
-    // #endregion
     if (!pageRes.ok) return null
 
     const html = await pageRes.text()
+    let media = extractTikTokMedia(html)
     let videoUrl = extractTikTokVideo(html)
-    let imageUrl = extractTikTokImage(html)
+    let imageUrl = media[0]?.thumbnail ?? extractTikTokImage(html)
     let title = extractMeta(html, "og:title") ?? extractMeta(html, "og:description")
 
-    if (!videoUrl) {
-      const videoId = extractTikTokVideoId(pageRes.url) ?? extractTikTokVideoId(withProtocol)
+    const videoId = extractTikTokPostId(pageRes.url) ?? extractTikTokPostId(withProtocol)
+    if ((!videoUrl && !media.length) || /\/photo\//i.test(pageRes.url) || /\/photo\//i.test(withProtocol)) {
       if (videoId) {
         const embedResult = await resolveTikTokFromEmbed(videoId)
+        if ((embedResult?.media?.length ?? 0) > media.length) {
+          media = embedResult?.media ?? media
+        }
         videoUrl = embedResult?.videoUrl ?? videoUrl
         imageUrl = embedResult?.imageUrl ?? imageUrl
         title = embedResult?.title ?? title
@@ -563,32 +594,20 @@ async function resolveTikTok(url: string): Promise<ResolveResult | null> {
     }
 
     imageUrl = imageUrl ?? oembed?.thumbnail_url
-    // #region debug-point A:tiktok-html-signals
-    void reportDebugTikTok("A", "app/api/resolve/route.ts:329", "TikTok HTML extraction signals", {
-      hasOgVideo: html.includes('property="og:video"') || html.includes("property='og:video'"),
-      hasOgVideoSecure: html.includes('property="og:video:secure_url"') || html.includes("property='og:video:secure_url'"),
-      hasDownloadAddr: html.includes('"downloadAddr"') || html.includes('\\"downloadAddr\\"'),
-      hasPlayAddr: html.includes('"playAddr"') || html.includes('\\"playAddr\\"'),
-      hasPlayUrl: html.includes('"playUrl"') || html.includes('\\"playUrl\\"'),
-      hasImageMeta: html.includes('property="og:image"') || html.includes("property='og:image'"),
-      hasMp4: html.includes(".mp4"),
-      htmlSnippet: html.slice(0, 240),
-    })
-    // #endregion
-    // #region debug-point B:tiktok-extraction-result
-    void reportDebugTikTok("B", "app/api/resolve/route.ts:341", "TikTok extraction result", {
-      videoUrl: videoUrl ?? null,
-      imageUrl: imageUrl ?? null,
-      selectedType: videoUrl ? "video" : imageUrl ? "image" : "none",
-    })
-    // #endregion
-    if (!videoUrl && !imageUrl) return null
+    if (!media.length && !videoUrl && !imageUrl) return null
+
+    if (!media.length && (videoUrl || imageUrl)) {
+      media = [{ type: videoUrl ? "video" : "image", url: videoUrl ?? imageUrl, thumbnail: imageUrl }]
+    }
 
     return {
       platform: "tiktok",
-      title: title?.trim() || oembed?.title?.trim() || "TikTok video",
-      author: oembed?.author_name,
-      media: [{ type: videoUrl ? "video" : "image", url: videoUrl ?? imageUrl, thumbnail: imageUrl }],
+      title:
+        title?.trim() ||
+        oembed?.title?.trim() ||
+        (media.length > 1 ? "TikTok photo post" : videoUrl ? "TikTok video" : "TikTok image"),
+      author: oembed?.author_name || extractTikTokHandle(pageRes.url) || extractTikTokHandle(withProtocol),
+      media,
     }
   } catch {
     return null
