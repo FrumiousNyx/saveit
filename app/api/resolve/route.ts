@@ -171,12 +171,15 @@ async function resolveRedditFromOldReddit(url: string): Promise<ResolveResult | 
   const hlsUrl = extractHtmlAttr(html, "data-hls-url")
   const mpdUrl = extractHtmlAttr(html, "data-mpd-url")
   const directVideoUrl = mpdUrl ? await extractRedditDashVideo(mpdUrl) : null
+  const oldRedditMedia = extractOldRedditMedia(html)
 
   const media: MediaItem[] = []
   if (directVideoUrl) {
     media.push({ type: "video", url: directVideoUrl, thumbnail })
   } else if (hlsUrl) {
     media.push({ type: "video", url: hlsUrl, thumbnail })
+  } else if (oldRedditMedia.length) {
+    media.push(...oldRedditMedia)
   } else if (thumbnail) {
     media.push({ type: "image", url: thumbnail, thumbnail })
   }
@@ -195,6 +198,39 @@ function extractHtmlAttr(html: string, attr: string): string | undefined {
   const escaped = attr.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
   const match = html.match(new RegExp(`${escaped}="([^"]+)"`, "i"))
   return decodeHtml(match?.[1])
+}
+
+function extractOldRedditMedia(html: string): MediaItem[] {
+  const postBlock = html.match(/<div class=" thing id-t3_[\s\S]*?<div class='commentarea'>/i)?.[0] ?? html
+  const galleryMatches = [
+    ...postBlock.matchAll(
+      /<a class="may-blank gallery-item-thumbnail-link"[^>]*data-position="(\d+)"[^>]*href="([^"]+)"/gi,
+    ),
+  ]
+
+  if (galleryMatches.length) {
+    return galleryMatches
+      .map((match) => ({
+        position: Number(match[1]),
+        url: decodeHtml(match[2]),
+      }))
+      .filter((item): item is { position: number; url: string } => Boolean(item.url))
+      .sort((a, b) => a.position - b.position)
+      .map((item) => ({
+        type: "image" as const,
+        url: item.url,
+        thumbnail: item.url,
+      }))
+  }
+
+  const singleImageUrl = decodeHtml(
+    postBlock.match(/<div class="media-preview-content">[\s\S]*?<a[^>]+href="([^"]+)"/i)?.[1],
+  )
+  if (singleImageUrl) {
+    return [{ type: "image", url: singleImageUrl, thumbnail: singleImageUrl }]
+  }
+
+  return []
 }
 
 async function extractRedditDashVideo(mpdUrl: string): Promise<string | null> {
