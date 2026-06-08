@@ -52,8 +52,9 @@ export function HomeClient() {
             Download media from anywhere.
           </h1>
           <p className="max-w-md text-pretty leading-relaxed text-muted-foreground">
-            Paste a link from Instagram, Reddit, or TikTok and grab the video or
-            image in a single tap. Clean, fast, distraction-free.
+            Paste one Instagram, Reddit, or TikTok link to download videos or
+            images fast, with ordered batch image support for Instagram and
+            Reddit gallery posts.
           </p>
         </div>
 

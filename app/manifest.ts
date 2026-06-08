@@ -5,7 +5,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: 'AnyDownloader',
     short_name: 'AnyDownloader',
     description:
-      'Download videos and images from Instagram, Reddit, and TikTok with a fast and simple interface.',
+      'Download videos and images from Instagram, Reddit, and TikTok with ordered batch image support for Instagram and Reddit galleries.',
     start_url: '/',
     display: 'standalone',
     background_color: '#0a0a0a',

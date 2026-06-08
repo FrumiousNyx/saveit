@@ -190,8 +190,8 @@ function ResultCard({ result }: { result: ResolveResult }) {
 
       <ul className="divide-y divide-border">
         {result.media.map((item, i) => (
-          <li key={i} className="flex items-center gap-3 px-4 py-3">
-            <div className="relative flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted">
+          <li key={i} className="flex items-start gap-4 px-4 py-4">
+            <div className="relative flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-muted">
               {getPreviewSrc(item) ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -205,12 +205,12 @@ function ResultCard({ result }: { result: ResolveResult }) {
                 </span>
               )}
               {result.media.length > 1 && (
-                <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-white">
+                <span className="absolute bottom-1.5 right-1.5 rounded bg-black/70 px-1.5 py-0.5 font-mono text-[10px] text-white">
                   {i + 1}
                 </span>
               )}
             </div>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 self-center">
               <p className="text-sm font-medium capitalize">{getItemLabel(result, item, i)}</p>
               <p className="truncate text-xs text-muted-foreground">{item.url}</p>
             </div>

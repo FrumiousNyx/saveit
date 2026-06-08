@@ -11,7 +11,7 @@ const geistMono = Geist_Mono({
 
 const APP_NAME = 'AnyDownloader'
 const APP_DESCRIPTION =
-  'Paste a link to download videos and images from Instagram, Reddit, and TikTok. Minimal, fast, and easy to use.'
+  'Download videos and images from Instagram, Reddit, and TikTok, including ordered batch image downloads for Instagram and Reddit gallery posts.'
 
 function getSiteUrl() {
   const rawUrl =
